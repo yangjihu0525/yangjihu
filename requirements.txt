@@ -1,6 +1,5 @@
 streamlit
 yfinance
 plotly
-numpy
-pandas
-scikit-learn
+requests
+textblob
