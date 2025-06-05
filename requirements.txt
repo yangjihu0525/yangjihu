@@ -1,10 +1,7 @@
 streamlit
 yfinance
-pandas
-numpy
 plotly
-seaborn
-matplotlib
+numpy
+pandas
 scikit-learn
-requests
-beautifulsoup4
+tensorflow
