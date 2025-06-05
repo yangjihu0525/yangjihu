@@ -1,5 +1,5 @@
 streamlit
 yfinance
-plotly
-requests
-textblob
+scikit-learn
+matplotlib
+numpy
