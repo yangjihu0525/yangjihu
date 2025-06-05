@@ -2,62 +2,79 @@ import streamlit as st
 import yfinance as yf
 import plotly.graph_objects as go
 import pandas as pd
+import numpy as np
 import requests
 from sklearn.linear_model import LinearRegression
-from sklearn.preprocessing import StandardScaler
-import numpy as np
 
-st.set_page_config(layout="wide")
 st.title("📈 AI 기반 종합 주가 분석 시스템")
 
-# 종목 입력
-ticker = st.text_input("종목 코드 입력 (예: AAPL, TSLA, MSFT)", "AAPL")
-data = yf.download(ticker, period="6mo")
+# --- 종목 입력 ---
+ticker = st.text_input("🔎 종목 코드 입력 (예: AAPL, TSLA, 005930.KS)", "AAPL")
 
-# 주가 차트
-st.subheader(f"📊 {ticker} 최근 6개월 주가")
-st.line_chart(data["Close"])
+if ticker:
+    data = yf.download(ticker, period="6mo")
+    st.subheader("💹 주가 차트 (6개월)")
+    st.line_chart(data["Close"])
 
-# 기술적 지표
-data["SMA20"] = data["Close"].rolling(window=20).mean()
-data["SMA50"] = data["Close"].rolling(window=50).mean()
+    # 기술적 지표
+    data["SMA20"] = data["Close"].rolling(window=20).mean()
+    data["SMA50"] = data["Close"].rolling(window=50).mean()
 
-fig = go.Figure()
-fig.add_trace(go.Scatter(x=data.index, y=data["Close"], name="종가"))
-fig.add_trace(go.Scatter(x=data.index, y=data["SMA20"], name="SMA 20"))
-fig.add_trace(go.Scatter(x=data.index, y=data["SMA50"], name="SMA 50"))
-st.plotly_chart(fig)
+    fig = go.Figure()
+    fig.add_trace(go.Scatter(x=data.index, y=data["Close"], name="Close"))
+    fig.add_trace(go.Scatter(x=data.index, y=data["SMA20"], name="SMA20"))
+    fig.add_trace(go.Scatter(x=data.index, y=data["SMA50"], name="SMA50"))
+    st.plotly_chart(fig)
 
-# 산업군 비교 (FAANG 기준)
-faang = ["AAPL", "AMZN", "GOOGL", "META", "NFLX"]
-faang_data = yf.download(faang, period="6mo")["Close"]
+    # 단기 주가 예측 (선형 회귀)
+    st.subheader("🔮 단기 주가 예측")
+    df = data[["Close"]].copy().dropna()
+    df["Prediction"] = df["Close"].shift(-5)
+    X = np.array(df[["Close"]][:-5])
+    y = np.array(df["Prediction"][:-5])
+    model = LinearRegression()
+    model.fit(X, y)
+    future = model.predict(np.array(df[["Close"]][-5:]))
 
-st.subheader("🧾 FAANG 종목 비교")
-st.line_chart(faang_data)
+    st.write("**다음 주 예상 종가 (단순 회귀 기반):**")
+    for i, val in enumerate(future):
+        st.write(f"📅 {i+1}일 후 예상: {round(val, 2)}")
 
-# 뉴스 요약 (뉴스 API 필요, 아래는 뉴스API.org 사용 예시)
-st.subheader("📰 최근 뉴스 헤드라인")
-NEWS_API_KEY = "your_newsapi_key_here"  # NewsAPI 키 입력
-if NEWS_API_KEY != "your_newsapi_key_here":
-    news_url = f"https://newsapi.org/v2/everything?q={ticker}&sortBy=publishedAt&apiKey={NEWS_API_KEY}"
-    res = requests.get(news_url).json()
-    articles = res["articles"][:5]
-    for article in articles:
-        st.markdown(f"- [{article['title']}]({article['url']})")
-else:
-    st.warning("🔑 News API 키를 입력해 주세요 (NEWS_API_KEY).")
+    st.markdown("---")
 
-# 간단한 선형 회귀 예측
-st.subheader("🤖 AI 예측 (선형 회귀)")
-data = data.dropna()
-X = np.arange(len(data)).reshape(-1, 1)
-y = data["Close"].values
-model = LinearRegression().fit(X, y)
-future_X = np.arange(len(data) + 5).reshape(-1, 1)
-future_y = model.predict(future_X)
+    # --- 경제 지표 ---
+    st.subheader("🌍 주요 경제 지표")
 
-fig_pred = go.Figure()
-fig_pred.add_trace(go.Scatter(x=data.index, y=data["Close"], name="실제"))
-future_dates = pd.date_range(start=data.index[-1], periods=6, freq="D")
-fig_pred.add_trace(go.Scatter(x=list(data.index) + list(future_dates), y=future_y, name="예측"))
-st.plotly_chart(fig_pred)
+    # 환율 (예: USD/KRW)
+    try:
+        fx_url = "https://api.exchangerate.host/latest?base=USD&symbols=KRW"
+        fx_res = requests.get(fx_url).json()
+        usd_krw = fx_res["rates"]["KRW"]
+        st.metric(label="환율 (USD/KRW)", value=round(usd_krw, 2))
+    except:
+        st.warning("환율 정보를 가져올 수 없습니다.")
+
+    # 미국 10년 국채 금리 (대략 값 가져오기)
+    try:
+        treasury_url = "https://datahub.io/core/interest-rates/r/10-year-us-treasury-rate.csv"
+        treasury_df = pd.read_csv(treasury_url)
+        latest_rate = treasury_df.iloc[-1]["Value"]
+        st.metric(label="미국 10년 국채 금리 (%)", value=latest_rate)
+    except:
+        st.warning("금리 정보를 가져올 수 없습니다.")
+
+    # 소비자 물가지수(CPI), 실업률 같은 데이터는 공공 API 등 별도 연결 필요
+
+    # --- 정치 이슈 뉴스 ---
+    st.subheader("📰 정치·경제 이슈 뉴스")
+    NEWS_API_KEY = "여기에_뉴스API키_넣기"
+    if NEWS_API_KEY != "여기에_뉴스API키_넣기":
+        query = "정치 OR 경제"
+        news_url = f"https://newsapi.org/v2/everything?q={query}&language=ko&sortBy=publishedAt&apiKey={NEWS_API_KEY}"
+        res = requests.get(news_url).json()
+        articles = res.get("articles", [])[:5]
+        for art in articles:
+            st.markdown(f"- [{art['title']}]({art['url']})")
+    else:
+        st.warning("뉴스API 키를 입력해 주세요.")
+
