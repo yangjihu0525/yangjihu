@@ -1,6 +1,10 @@
 streamlit
 yfinance
 pandas
+numpy
 plotly
-matplotlib
 seaborn
+matplotlib
+scikit-learn
+requests
+beautifulsoup4
