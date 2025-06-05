@@ -1,66 +1,75 @@
 import streamlit as st
 import yfinance as yf
 import plotly.graph_objects as go
-import numpy as np
-from sklearn.linear_model import LinearRegression
+import requests
+from textblob import TextBlob
 
-st.title("📊 AI 기반 종합 주가 분석 & 산업군 비교 & 단순 회귀 예측")
+# 뉴스 API 키 (Streamlit Secrets에 등록 권장)
+NEWS_API_KEY = st.secrets.get("NEWS_API_KEY")
 
-ticker = st.text_input("🔎 종목 코드 입력 (예: AAPL, TSLA, 005930.KS)", "AAPL")
+st.title("📊 AI 기반 종합 주가 분석 & 뉴스 감성 분석")
 
-if ticker:
-    data = yf.download(ticker, period="6mo")
-    st.subheader(f"💹 {ticker} 주가 차트 (6개월)")
-    st.line_chart(data["Close"])
+# 1. 종목 입력 및 주가 데이터 가져오기
+ticker = st.text_input("종목 코드를 입력하세요 (예: AAPL, TSLA)", "AAPL")
+data = yf.download(ticker, period="6mo")
 
-    # 기술적 지표 SMA20, SMA50
-    data["SMA20"] = data["Close"].rolling(window=20).mean()
-    data["SMA50"] = data["Close"].rolling(window=50).mean()
-    fig = go.Figure()
-    fig.add_trace(go.Scatter(x=data.index, y=data["Close"], name="Close"))
-    fig.add_trace(go.Scatter(x=data.index, y=data["SMA20"], name="SMA20"))
-    fig.add_trace(go.Scatter(x=data.index, y=data["SMA50"], name="SMA50"))
-    st.plotly_chart(fig)
+# 2. 주가 시각화 및 기술적 지표
+st.subheader("최근 6개월 주가")
+st.line_chart(data["Close"])
 
-    # 산업군 주요 종목 비교 (간단 예시)
-    def get_industry_peers(ticker):
-        info = yf.Ticker(ticker).info
-        sector = info.get('sector')
-        peers = {
-            'Technology': ['AAPL', 'MSFT', 'GOOGL', 'NVDA', 'INTC'],
-            'Consumer Cyclical': ['TSLA', 'NKE', 'SBUX', 'HD', 'MCD'],
-            'Financial Services': ['JPM', 'BAC', 'WFC', 'C', 'GS'],
-            'Healthcare': ['JNJ', 'PFE', 'MRK', 'ABBV', 'TMO'],
-            'Communication Services': ['FB', 'GOOGL', 'NFLX', 'DIS', 'VZ'],
-        }
-        return peers.get(sector, [ticker])
+st.subheader("기술적 지표 (단순 이동 평균)")
+data["SMA20"] = data["Close"].rolling(window=20).mean()
+data["SMA50"] = data["Close"].rolling(window=50).mean()
 
-    peers = get_industry_peers(ticker)
-    st.subheader(f"🏭 산업군 ({yf.Ticker(ticker).info.get('sector', '정보없음')}) 주요 종목 비교")
-    st.write(", ".join(peers))
+fig = go.Figure()
+fig.add_trace(go.Scatter(x=data.index, y=data["Close"], name="Close"))
+fig.add_trace(go.Scatter(x=data.index, y=data["SMA20"], name="SMA 20"))
+fig.add_trace(go.Scatter(x=data.index, y=data["SMA50"], name="SMA 50"))
 
-    fig_peers = go.Figure()
-    for peer in peers:
-        try:
-            peer_data = yf.download(peer, period="6mo")
-            fig_peers.add_trace(go.Scatter(x=peer_data.index, y=peer_data['Close'], name=peer))
-        except Exception as e:
-            st.write(f"{peer} 데이터 불러오기 실패: {e}")
-    st.plotly_chart(fig_peers)
+st.plotly_chart(fig)
 
-    # 단순 회귀 기반 주가 예측
-    st.subheader("🤖 단순 회귀 기반 주가 예측")
+# 3. 뉴스 가져오기 & 감성 분석 함수
+def fetch_news(ticker):
+    url = (
+        f"https://newsapi.org/v2/everything?"
+        f"q={ticker}&"
+        f"language=en&"
+        f"sortBy=publishedAt&"
+        f"apiKey={NEWS_API_KEY}"
+    )
+    response = requests.get(url)
+    if response.status_code != 200:
+        return []
+    articles = response.json().get("articles", [])
+    return articles
 
-    data_close = data['Close'].values.reshape(-1, 1)
-    X = np.arange(len(data_close)).reshape(-1, 1)  # 날짜 인덱스
-    y = data_close
+def analyze_sentiment(text):
+    blob = TextBlob(text)
+    return blob.sentiment.polarity  # -1 ~ 1 (부정~긍정)
 
-    model = LinearRegression()
-    model.fit(X, y)
+# 4. 뉴스 & 감성 분석 출력
+st.subheader("📰 최신 뉴스 및 감성 분석")
 
-    future_days = 5
-    X_pred = np.arange(len(data_close), len(data_close) + future_days).reshape(-1, 1)
-    preds = model.predict(X_pred)
-
-    for i, price in enumerate(preds):
-        st.write(f"{i+1}일 후 예상 주가: {price[0]:.2f}")
+if not NEWS_API_KEY:
+    st.warning("뉴스API 키를 streamlit secrets에 NEWS_API_KEY로 등록해주세요.")
+else:
+    if ticker:
+        news_list = fetch_news(ticker)
+        if not news_list:
+            st.write("뉴스를 불러올 수 없습니다.")
+        else:
+            positive, negative = 0, 0
+            for article in news_list[:10]:
+                title = article["title"]
+                desc = article.get("description") or ""
+                content = title + " " + desc
+                polarity = analyze_sentiment(content)
+                if polarity > 0.1:
+                    positive += 1
+                elif polarity < -0.1:
+                    negative += 1
+                st.markdown(f"**{title}**")
+                st.write(f"감성 점수: {polarity:.2f}")
+                st.write(article["url"])
+                st.write("---")
+            st.write(f"긍정 뉴스 수: {positive}, 부정 뉴스 수: {negative}")
